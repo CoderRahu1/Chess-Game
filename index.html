@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chess with AI + Eval Bar + Hint Explanation</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
+  <style>
+    body {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+    #board {
+      width: 500px;
+      margin: 20px;
+      position: relative;
+    }
+    #controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    button, select {
+      padding: 10px 15px;
+      margin: 5px;
+      font-size: 14px;
+      border: none;
+      border-radius: 5px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    select {
+      background: white;
+      border: 1px solid #ccc;
+    }
+    /* Evaluation bar */
+    #evalContainer {
+      width: 30px;
+      height: 500px;
+      border: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+      margin: 20px;
+    }
+    #evalWhite {
+      background: white;
+      width: 100%;
+      height: 50%;
+    }
+    #evalBlack {
+      background: black;
+      width: 100%;
+      height: 50%;
+    }
+    #hintText {
+      margin-top: 10px;
+      font-style: italic;
+      color: #333;
+      max-width: 200px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="evalContainer">
+    <div id="evalWhite"></div>
+    <div id="evalBlack"></div>
+  </div>
+
+  <div id="board"></div>
+
+  <div id="controls">
+    <h2>Chess Game</h2>
+    <select id="mode">
+      <option value="human">Human vs Human</option>
+      <option value="ai">Human vs AI</option>
+    </select>
+
+    <select id="difficulty">
+      <option value="2">Easy</option>
+      <option value="5">Medium</option>
+      <option value="10" selected>Hard</option>
+    </select>
+
+    <button onclick="resetGame()">Restart</button>
+    <button onclick="undoMove()">Undo</button>
+    <button onclick="showHint()">Hint</button>
+
+    <p id="hintText"></p>
+  </div>
+
+  <!-- Dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <script>
+    const game = new Chess();
+    const board = Chessboard('board', {
+      draggable: true,
+      position: 'start',
+      pieceTheme: 'https://lichess1.org/assets/piece/alpha/{piece}.svg',
+      onDrop: handleMove
+    });
+
+    // Stockfish worker (local file - must be in same folder)
+    const stockfish = new Worker("stockfish.wasm.js");
+    let engineReady = false;
+    let pendingHint = false;
+
+    stockfish.onmessage = (e) => {
+      const msg = e.data;
+      console.log("Stockfish:", msg);
+
+      if (msg === "uciok") engineReady = true;
+
+      // Evaluation output
+      if (typeof msg === "string" && msg.includes("score")) {
+        let score = null;
+        if (msg.includes("score cp")) {
+          score = parseInt(msg.split("score cp ")[1].split(" ")[0]);
+          updateEvalBar(score / 100.0);
+        } else if (msg.includes("score mate")) {
+          let mate = parseInt(msg.split("score mate ")[1].split(" ")[0]);
+          updateEvalBar(mate > 0 ? 99 : -99);
+        }
+      }
+
+      if (typeof msg === "string" && msg.startsWith("bestmove")) {
+        const best = msg.split(" ")[1];
+        if (!best || best === "(none)") return;
+
+        if (pendingHint) {
+          explainAndHighlight(best.substring(0,2), best.substring(2,4));
+          pendingHint = false;
+        } else {
+          game.move({ from: best.substring(0,2), to: best.substring(2,4), promotion: 'q' });
+          board.position(game.fen());
+          checkGameOver();
+        }
+      }
+    };
+
+    stockfish.postMessage("uci");
+
+    function handleMove(source, target) {
+      clearHints();
+      const move = game.move({ from: source, to: target, promotion: 'q' });
+      if (move === null) return 'snapback';
+      board.position(game.fen());
+      checkGameOver();
+
+      if (document.getElementById("mode").value === "ai" && !game.game_over()) {
+        setTimeout(makeAIMove, 200);
+      }
+    }
+
+    function makeAIMove() {
+      if (!engineReady) return;
+      const depth = document.getElementById("difficulty").value;
+      stockfish.postMessage("position fen " + game.fen());
+      stockfish.postMessage("go depth " + depth);
+    }
+
+    function showHint() {
+      if (!engineReady) return;
+      clearHints();
+      const depth = document.getElementById("difficulty").value;
+      stockfish.postMessage("position fen " + game.fen());
+      stockfish.postMessage("go depth " + depth);
+      pendingHint = true;
+    }
+
+    function explainAndHighlight(from, to) {
+      // Highlight squares
+      let fromSquare = document.querySelector(`#board .square-${from}`);
+      let toSquare = document.querySelector(`#board .square-${to}`);
+      if (fromSquare) fromSquare.style.backgroundColor = "rgba(0,255,0,0.6)";
+      if (toSquare) toSquare.style.backgroundColor = "rgba(255,255,0,0.6)";
+
+      // Generate explanation
+      const move = game.move({ from: from, to: to, promotion: 'q' });
+      let explanation = "";
+
+      if (move.captured) {
+        explanation += `Captures a ${move.captured}. `;
+      }
+      if (game.in_check()) {
+        explanation += "Puts opponent in check. ";
+      }
+      if (move.san.includes("O-O")) {
+        explanation += "Castles the king for safety. ";
+      }
+      if (move.piece === "p" && (to[1] === "4" || to[1] === "5")) {
+        explanation += "Controls the center with a pawn. ";
+      }
+      if (move.promotion) {
+        explanation += "Promotes the pawn to a queen. ";
+      }
+
+      game.undo(); // revert simulation
+
+      document.getElementById("hintText").innerText =
+        "Hint: " + (explanation || "This move improves your position.");
+    }
+
+    function resetGame() {
+      game.reset();
+      board.start();
+      updateEvalBar(0);
+      clearHints();
+    }
+
+    function undoMove() {
+      game.undo();
+      board.position(game.fen());
+      clearHints();
+    }
+
+    function checkGameOver() {
+      if (game.game_over()) {
+        if (game.in_checkmate()) alert("Checkmate!");
+        else if (game.in_draw()) alert("Draw!");
+        else if (game.in_stalemate()) alert("Stalemate!");
+      }
+    }
+
+    // Evaluation bar
+    function updateEvalBar(score) {
+      if (score > 10) score = 10;
+      if (score < -10) score = -10;
+
+      let whiteShare = 50 + (score * 5);
+      if (whiteShare > 100) whiteShare = 100;
+      if (whiteShare < 0) whiteShare = 0;
+
+      document.getElementById("evalWhite").style.height = whiteShare + "%";
+      document.getElementById("evalBlack").style.height = (100 - whiteShare) + "%";
+    }
+
+    function clearHints() {
+      const squares = document.querySelectorAll('#board .square-55d63');
+      squares.forEach(sq => sq.style.backgroundColor = "");
+      document.getElementById("hintText").innerText = "";
+    }
+  </script>
+</body>
+</html>
