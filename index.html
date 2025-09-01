@@ -104,6 +104,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
+  <!-- Stockfish (CDN version - works on GitHub Pages) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.wasm.js"></script>
+
   <script>
     const game = new Chess();
     const board = Chessboard('board', {
@@ -113,10 +116,8 @@
       onDrop: handleMove
     });
 
-    // Stockfish worker (local file - must be in same folder)
-    // const stockfish = new Worker("stockfish.wasm.js");
-    const stockfish = new Worker("https://cdn.jsdelivr.net/npm/stockfish@16.1.1/src/stockfish.js");
-
+    // Initialize Stockfish (from CDN)
+    const stockfish = new Worker("https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.wasm.js");
     let engineReady = false;
     let pendingHint = false;
 
