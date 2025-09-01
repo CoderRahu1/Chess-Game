@@ -114,7 +114,9 @@
     });
 
     // Stockfish worker (local file - must be in same folder)
-    const stockfish = new Worker("stockfish.wasm.js");
+    // const stockfish = new Worker("stockfish.wasm.js");
+    const stockfish = new Worker("https://cdn.jsdelivr.net/npm/stockfish@16.1.1/src/stockfish.js");
+
     let engineReady = false;
     let pendingHint = false;
 
